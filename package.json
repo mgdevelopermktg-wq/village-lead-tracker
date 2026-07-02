@@ -1,0 +1,10 @@
+{
+  "name": "village-lead-tracker",
+  "version": "1.0.0",
+  "description": "The Village at Coral Gables — Sales Lead Tracker",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "node-fetch": "^3.3.2"
+  }
+}

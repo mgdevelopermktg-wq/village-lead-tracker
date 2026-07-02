@@ -1,0 +1,10 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Scheduled weekly import — every Monday at 8am ET (12:00 UTC)
+[functions."weekly-import"]
+  schedule = "0 12 * * 1"
