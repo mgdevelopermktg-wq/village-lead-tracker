@@ -1,10 +1,12 @@
 /**
  * spark-relay.js
- * Posts a note to the Spark CRM Notes section.
- * Requires a valid contact_id — name-based search was removed (unreliable).
+ * Posts a note to Spark CRM Notes section.
+ * If contact_id is missing, searches the project-scoped contacts
+ * endpoint by first + last name for a reliable match.
  */
 
-const SPARK_API = 'https://api.spark.re/v2';
+const SPARK_API  = 'https://api.spark.re/v2';
+const PROJECT_ID = process.env.SPARK_PROJECT_ID;
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -29,33 +31,82 @@ function flattenError(obj) {
   return JSON.stringify(obj);
 }
 
+function normName(s) {
+  return (s || '').toLowerCase().replace(/[^a-z\s]/g,'').trim().replace(/\s+/,' ');
+}
+
+async function findContactByName(name) {
+  // Split into first / last name for a targeted search
+  const parts  = name.trim().split(/\s+/);
+  const first  = parts[0] || '';
+  const last   = parts.slice(1).join(' ') || '';
+  const target = normName(name);
+
+  // Project-scoped search with both first and last name params
+  const params = new URLSearchParams({ per_page: '25' });
+  if (first) params.set('filters[first_name]', first);
+  if (last)  params.set('filters[last_name]',  last);
+
+  const url = `${SPARK_API}/projects/${PROJECT_ID}/contacts?${params}`;
+  const r   = await fetch(url, { headers: sparkAuth() });
+  if (!r.ok) return null;
+
+  const data = await r.json();
+  const list = data.contacts || data.data || (Array.isArray(data) ? data : []);
+  if (!list.length) return null;
+
+  // Exact full-name match first
+  const exact = list.find(c =>
+    normName(`${c.first_name||''} ${c.last_name||''}`) === target
+  );
+  if (exact) return exact;
+
+  // Partial fallback (same last name at minimum)
+  return list.find(c =>
+    normName(c.last_name||'') === normName(last)
+  ) || null;
+}
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };
-  if (event.httpMethod !== 'POST') return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: 'Method not allowed' }) };
+  if (event.httpMethod !== 'POST')    return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: 'Method not allowed' }) };
 
   try {
-    const { contact_id, note, timestamp } = JSON.parse(event.body || '{}');
+    const { contact_id, note, name, timestamp } = JSON.parse(event.body || '{}');
+    if (!note) return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'note is required' }) };
 
-    if (!contact_id) return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'contact_id is required' }) };
-    if (!note)       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'note is required' }) };
+    let sparkId = contact_id || null;
+    let resolvedFromSearch = false;
 
-    const occurred_at = timestamp || new Date().toISOString();
+    if (!sparkId && name) {
+      const contact = await findContactByName(name);
+      if (contact) { sparkId = contact.id; resolvedFromSearch = true; }
+    }
+
+    if (!sparkId) {
+      return { statusCode: 404, headers: CORS, body: JSON.stringify({
+        error: name ? `"${name}" not found in Spark project ${PROJECT_ID}` : 'contact_id required',
+      })};
+    }
+
     const teamId = parseInt(process.env.SPARK_TEAM_MEMBER_ID) || undefined;
-
-    // POST to /v2/notes (flat payload, "text" field)
-    const resp = await fetch(`${SPARK_API}/notes`, {
+    const resp   = await fetch(`${SPARK_API}/notes`, {
       method: 'POST',
       headers: sparkAuth(),
       body: JSON.stringify({
-        contact_id,
+        contact_id: sparkId,
         text: note,
-        occurred_at,
+        occurred_at: timestamp || new Date().toISOString(),
         ...(teamId && { team_member_id: teamId }),
       }),
     });
 
     if (resp.status === 200 || resp.status === 201) {
-      return { statusCode: 200, headers: CORS, body: JSON.stringify({ success: true }) };
+      return { statusCode: 200, headers: CORS, body: JSON.stringify({
+        success: true,
+        spark_id: sparkId,
+        resolved_from_search: resolvedFromSearch,
+      })};
     }
 
     const errData = await resp.json().catch(() => ({}));
