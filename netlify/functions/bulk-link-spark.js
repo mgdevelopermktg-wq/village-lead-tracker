@@ -50,7 +50,7 @@ export const handler = async (event) => {
   try {
     const supabase = createClient(
       process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_KEY
+      process.env.SUPABASE_SECRET_KEY
     );
 
     // 1. Fetch all Spark contacts for this project
