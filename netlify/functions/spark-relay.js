@@ -103,6 +103,7 @@ export const handler = async (event) => {
         return { statusCode: 200, headers: CORS, body: JSON.stringify({
           success: true, spark_id: sparkId, resolved_from_search: resolvedFromSearch,
           endpoint_used: attempt.url,
+          spark_response: data,   // full response for diagnostics
         })};
       }
       const errBody = await resp.json().catch(() => ({}));

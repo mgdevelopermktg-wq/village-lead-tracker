@@ -565,7 +565,10 @@ async function addNote() {
     var r = await fetch('/.netlify/functions/spark-relay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     var rj = await r.json().catch(function(){return {};});
     if (r.ok) {
-      ss.className='spark-sync-status ok'; ss.textContent='✓ Synced to Spark CRM';
+      var detail = rj.resolved_from_search ? ' (matched by name, ID: '+rj.spark_id+')' : ' (ID: '+rj.spark_id+')';
+      var noteId = rj.spark_response && (rj.spark_response.id || (rj.spark_response.note && rj.spark_response.note.id));
+      ss.className='spark-sync-status ok';
+      ss.textContent='✓ Synced to Spark CRM' + detail + (noteId ? ', note #'+noteId : '') + ' via '+rj.endpoint_used;
       // Cache resolved spark_id if we didn't have one
       if (rj.spark_id && !sparkId) {
         currentLead.spark_id = rj.spark_id;
