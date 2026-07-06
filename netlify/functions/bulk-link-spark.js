@@ -1,8 +1,7 @@
 /**
  * bulk-link-spark.js
- * One-time endpoint: fetches ALL contacts from Spark project, matches them
+ * One-time endpoint: fetches ALL contacts from Spark, matches them
  * against leads in Supabase that have no spark_id, and updates the DB.
- * GET /.netlify/functions/bulk-link-spark
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -29,19 +28,27 @@ function normName(s) {
 async function fetchAllSparkContacts() {
   const contacts = [];
   let page = 1;
+  const debugPages = [];
+
   while (true) {
-    const url = `${SPARK_API}/projects/${PROJECT_ID}/contacts?per_page=100&page=${page}`;
+    // Try both the project-scoped and global endpoints
+    const url = `${SPARK_API}/contacts?project_id=${PROJECT_ID}&per_page=100&page=${page}`;
     const r = await fetch(url, { headers: sparkAuth() });
-    if (!r.ok) break;
-    const data = await r.json();
+    const status = r.status;
+    const data = await r.json().catch(() => ({}));
+    debugPages.push({ page, status, url, keys: Object.keys(data) });
+
+    if (!r.ok) {
+      return { contacts, debugPages, error: `Spark ${status}: ${JSON.stringify(data)}` };
+    }
+
     const list = data.contacts || data.data || (Array.isArray(data) ? data : []);
     if (!list.length) break;
     contacts.push(...list);
-    // If fewer than 100 returned, we've hit the last page
     if (list.length < 100) break;
     page++;
   }
-  return contacts;
+  return { contacts, debugPages };
 }
 
 export const handler = async (event) => {
@@ -53,22 +60,25 @@ export const handler = async (event) => {
       process.env.SUPABASE_SECRET_KEY
     );
 
-    // 1. Fetch all Spark contacts for this project
-    const sparkContacts = await fetchAllSparkContacts();
-    if (!sparkContacts.length) {
-      return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: 'No Spark contacts returned', project_id: PROJECT_ID }) };
+    const { contacts: sparkContacts, debugPages, error: fetchErr } = await fetchAllSparkContacts();
+
+    if (fetchErr || !sparkContacts.length) {
+      return {
+        statusCode: 500, headers: CORS,
+        body: JSON.stringify({ error: fetchErr || 'No Spark contacts returned', project_id: PROJECT_ID, debugPages }),
+      };
     }
 
-    // Build name → id map (full name and last,first variants)
+    // Build name → id map
     const sparkMap = {};
     for (const c of sparkContacts) {
       const full = normName(`${c.first_name||''} ${c.last_name||''}`);
       const rev  = normName(`${c.last_name||''} ${c.first_name||''}`);
       if (full) sparkMap[full] = c.id;
-      if (rev)  sparkMap[rev]  = c.id;
+      if (rev && rev !== full) sparkMap[rev] = c.id;
     }
 
-    // 2. Fetch leads from Supabase with no spark_id
+    // Fetch leads from Supabase with no spark_id
     const { data: leads, error: leadsErr } = await supabase
       .from('leads')
       .select('id, name, spark_id')
@@ -76,10 +86,10 @@ export const handler = async (event) => {
 
     if (leadsErr) return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: leadsErr.message }) };
 
-    // 3. Match and update
+    // Match and update
     const matched = [], unmatched = [];
     for (const lead of leads) {
-      const key = normName(lead.name);
+      const key    = normName(lead.name);
       const sparkId = sparkMap[key] || null;
       if (sparkId) {
         await supabase.from('leads').update({ spark_id: sparkId }).eq('id', lead.id);
@@ -90,8 +100,7 @@ export const handler = async (event) => {
     }
 
     return {
-      statusCode: 200,
-      headers: CORS,
+      statusCode: 200, headers: CORS,
       body: JSON.stringify({
         spark_contacts_fetched: sparkContacts.length,
         leads_without_spark_id: leads.length,
