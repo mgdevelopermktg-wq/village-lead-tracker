@@ -556,16 +556,28 @@ async function addNote() {
   await saveField(currentLead.id, 'last_note_date', today);
   var idx = LEADS.findIndex(function(l){return l.id===currentLead.id;});
   if (idx>-1) { LEADS[idx].notes=newNotes; LEADS[idx].last_note_date=today; }
-  var sparkId = currentLead.spark_id||currentLead.sparkId;
+  var sparkId = currentLead.spark_id||currentLead.sparkId||null;
   var ss = document.getElementById('spark-sync-status');
-  if (sparkId) {
-    ss.className = 'spark-sync-status syncing'; ss.textContent = '⟳ Syncing to Spark CRM…';
-    try {
-      var r = await fetch('/.netlify/functions/spark-relay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contact_id:sparkId, note:text})});
-      if (r.ok) { ss.className='spark-sync-status ok'; ss.textContent='✓ Synced to Spark CRM'; }
-      else { var err=await r.json().catch(function(){return {};}); ss.className='spark-sync-status err'; ss.textContent='⚠ Spark sync failed: '+(err.error||r.status); }
-    } catch(e) { ss.className='spark-sync-status err'; ss.textContent='⚠ Error: '+e.message; }
-  } else { ss.className='spark-sync-status ok'; ss.textContent='✓ Saved (no Spark ID — CRM sync skipped)'; }
+  ss.className = 'spark-sync-status syncing'; ss.textContent = '⟳ Syncing to Spark CRM…';
+  try {
+    var body = {note: text, name: currentLead.name};
+    if (sparkId) body.contact_id = sparkId;
+    var r = await fetch('/.netlify/functions/spark-relay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    var rj = await r.json().catch(function(){return {};});
+    if (r.ok) {
+      ss.className='spark-sync-status ok'; ss.textContent='✓ Synced to Spark CRM';
+      // Cache resolved spark_id if we didn't have one
+      if (rj.spark_id && !sparkId) {
+        currentLead.spark_id = rj.spark_id;
+        var idx2 = LEADS.findIndex(function(l){return l.id===currentLead.id;});
+        if (idx2>-1) LEADS[idx2].spark_id = rj.spark_id;
+        await saveField(currentLead.id, 'spark_id', rj.spark_id);
+      }
+    } else {
+      ss.className='spark-sync-status err';
+      ss.textContent='⚠ Spark sync failed: '+(rj.detail||rj.error||r.status);
+    }
+  } catch(e) { ss.className='spark-sync-status err'; ss.textContent='⚠ Error: '+e.message; }
   renderStats(); renderFollowUpQueue(); renderLeads();
   btn.disabled=false; btn.textContent='+ Add Note to Spark';
 }
