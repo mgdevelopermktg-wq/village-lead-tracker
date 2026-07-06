@@ -561,7 +561,7 @@ async function addNote() {
   if (sparkId) {
     ss.className = 'spark-sync-status syncing'; ss.textContent = '⟳ Syncing to Spark CRM…';
     try {
-      var r = await fetch('/.netlify/functions/spark-relay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({sparkContactId:sparkId, note:text})});
+      var r = await fetch('/.netlify/functions/spark-relay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contact_id:sparkId, note:text})});
       if (r.ok) { ss.className='spark-sync-status ok'; ss.textContent='✓ Synced to Spark CRM'; }
       else { var err=await r.json().catch(function(){return {};}); ss.className='spark-sync-status err'; ss.textContent='⚠ Spark sync failed: '+(err.error||r.status); }
     } catch(e) { ss.className='spark-sync-status err'; ss.textContent='⚠ Error: '+e.message; }
