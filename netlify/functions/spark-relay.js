@@ -1,12 +1,11 @@
 /**
  * spark-relay.js
  * Posts a note to Spark CRM Notes section.
- * If contact_id is missing, searches the project-scoped contacts
- * endpoint by first + last name for a reliable match.
+ * If contact_id is missing, searches Spark contacts by name.
  */
 
 const SPARK_API  = 'https://api.spark.re/v2';
-const PROJECT_ID = process.env.SPARK_PROJECT_ID;
+const PROJECT_ID = process.env.SPARK_PROJECT_ID || '2167';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -36,18 +35,13 @@ function normName(s) {
 }
 
 async function findContactByName(name) {
-  // Split into first / last name for a targeted search
-  const parts  = name.trim().split(/\s+/);
-  const first  = parts[0] || '';
-  const last   = parts.slice(1).join(' ') || '';
   const target = normName(name);
+  const parts  = name.trim().split(/\s+/);
+  const last   = parts.slice(1).join(' ');
 
-  // Project-scoped search with both first and last name params
-  const params = new URLSearchParams({ per_page: '25' });
-  if (first) params.set('filters[first_name]', first);
-  if (last)  params.set('filters[last_name]',  last);
-
-  const url = `${SPARK_API}/projects/${PROJECT_ID}/contacts?${params}`;
+  // Search via the global endpoint — use last name as filter
+  const params = new URLSearchParams({ per_page: '50', 'filters[search]': last || name });
+  const url = `${SPARK_API}/contacts?${params}`;
   const r   = await fetch(url, { headers: sparkAuth() });
   if (!r.ok) return null;
 
@@ -55,15 +49,9 @@ async function findContactByName(name) {
   const list = data.contacts || data.data || (Array.isArray(data) ? data : []);
   if (!list.length) return null;
 
-  // Exact full-name match first
-  const exact = list.find(c =>
-    normName(`${c.first_name||''} ${c.last_name||''}`) === target
-  );
-  if (exact) return exact;
-
-  // Partial fallback (same last name at minimum)
+  // Exact full-name match
   return list.find(c =>
-    normName(c.last_name||'') === normName(last)
+    normName(`${c.first_name||''} ${c.last_name||''}`) === target
   ) || null;
 }
 
@@ -78,19 +66,25 @@ export const handler = async (event) => {
     let sparkId = contact_id || null;
     let resolvedFromSearch = false;
 
+    // Auto-search if no spark_id stored
     if (!sparkId && name) {
       const contact = await findContactByName(name);
       if (contact) { sparkId = contact.id; resolvedFromSearch = true; }
     }
 
     if (!sparkId) {
-      return { statusCode: 404, headers: CORS, body: JSON.stringify({
-        error: name ? `"${name}" not found in Spark project ${PROJECT_ID}` : 'contact_id required',
-      })};
+      return {
+        statusCode: 404, headers: CORS,
+        body: JSON.stringify({
+          error: name
+            ? `"${name}" not found in Spark — link manually below`
+            : 'contact_id required',
+        }),
+      };
     }
 
-    const teamId = parseInt(process.env.SPARK_TEAM_MEMBER_ID) || undefined;
-    const resp   = await fetch(`${SPARK_API}/notes`, {
+    const teamId    = parseInt(process.env.SPARK_TEAM_MEMBER_ID) || undefined;
+    const resp      = await fetch(`${SPARK_API}/notes`, {
       method: 'POST',
       headers: sparkAuth(),
       body: JSON.stringify({
