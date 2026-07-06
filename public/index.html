@@ -110,6 +110,13 @@
   .note-item { background: var(--teal2); border-radius: 8px; padding: 10px 12px; border-left: 3px solid rgba(214,187,131,0.35); }
   .note-date { font-size: 10px; color: var(--gold); margin-bottom: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
   .note-text { font-size: 12px; color: rgba(234,229,225,0.85); line-height: 1.6; white-space: pre-wrap; }
+  .spark-link-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; padding: 10px 12px; background: rgba(214,187,131,0.07); border: 1px dashed rgba(214,187,131,0.25); border-radius: 8px; }
+  .spark-link-input { flex:1; background: var(--teal2); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px; padding: 6px 10px; font-size: 12px; outline: none; font-family: inherit; }
+  .spark-link-input:focus { border-color: var(--gold); }
+  .spark-link-input::placeholder { color: rgba(234,229,225,0.35); }
+  .btn-link-spark { background: rgba(214,187,131,0.2); color: var(--gold); border: 1px solid rgba(214,187,131,0.4); border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; font-family: inherit; }
+  .btn-link-spark:hover { background: rgba(214,187,131,0.35); }
+  .spark-link-hint { font-size: 10px; color: rgba(234,229,225,0.4); margin-top: 4px; }
   .spark-sync-status { font-size: 11px; padding: 6px 10px; border-radius: 6px; margin-top: 6px; display: none; }
   .spark-sync-status.syncing { display: block; background: rgba(214,187,131,0.12); color: var(--gold2); border: 1px solid rgba(214,187,131,0.3); }
   .spark-sync-status.ok { display: block; background: rgba(30,132,73,0.1); color: var(--green); border: 1px solid rgba(30,132,73,0.25); }
@@ -356,6 +363,14 @@
       <button class="btn-add-note" id="dp-add-note-btn" onclick="addNote()">+ Add Note to Spark</button>
     </div>
     <div class="spark-sync-status" id="spark-sync-status"></div>
+    <div id="spark-link-section" style="display:none">
+      <div class="dp-section-label" style="color:rgba(214,187,131,0.6)">Link Spark Contact</div>
+      <div class="spark-link-row">
+        <input class="spark-link-input" id="spark-link-input" placeholder="Paste Spark contact ID (from URL)" type="number">
+        <button class="btn-link-spark" onclick="linkSparkId()">Link</button>
+      </div>
+      <div class="spark-link-hint">Open the contact in Spark &rarr; copy the number from the URL (e.g. /contacts/<strong>8615963</strong>)</div>
+    </div>
     <div class="dp-section-label">Activity History</div>
     <div class="note-timeline" id="dp-notes"></div>
   </div>
@@ -501,6 +516,9 @@ function openDetail(id) {
   document.getElementById('dp-note-input').value = '';
   var ss = document.getElementById('spark-sync-status');
   ss.className = 'spark-sync-status'; ss.textContent = '';
+  var hasSparkId = !!(l.spark_id || l.sparkId);
+  document.getElementById('spark-link-section').style.display = hasSparkId ? 'none' : '';
+  document.getElementById('spark-link-input').value = '';
   renderNoteTimeline(l);
   document.getElementById('detail-overlay').classList.add('open');
   document.getElementById('detail-panel').classList.add('open');
@@ -558,32 +576,44 @@ async function addNote() {
   if (idx>-1) { LEADS[idx].notes=newNotes; LEADS[idx].last_note_date=today; }
   var sparkId = currentLead.spark_id||currentLead.sparkId||null;
   var ss = document.getElementById('spark-sync-status');
-  ss.className = 'spark-sync-status syncing'; ss.textContent = '⟳ Syncing to Spark CRM…';
-  try {
-    var body = {note: text, name: currentLead.name};
-    if (sparkId) body.contact_id = sparkId;
-    var r = await fetch('/.netlify/functions/spark-relay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-    var rj = await r.json().catch(function(){return {};});
-    if (r.ok) {
-      var detail = rj.resolved_from_search ? ' (matched by name, ID: '+rj.spark_id+')' : ' (ID: '+rj.spark_id+')';
-      var noteId = rj.spark_response && (rj.spark_response.id || (rj.spark_response.note && rj.spark_response.note.id));
-      ss.className='spark-sync-status ok';
-      ss.textContent='✓ Synced to Spark CRM' + detail + (noteId ? ', note #'+noteId : '') + ' via '+rj.endpoint_used;
-      // Cache resolved spark_id if we didn't have one
-      if (rj.spark_id && !sparkId) {
-        currentLead.spark_id = rj.spark_id;
-        var idx2 = LEADS.findIndex(function(l){return l.id===currentLead.id;});
-        if (idx2>-1) LEADS[idx2].spark_id = rj.spark_id;
-        await saveField(currentLead.id, 'spark_id', rj.spark_id);
+  if (sparkId) {
+    ss.className = 'spark-sync-status syncing'; ss.textContent = '⟳ Syncing to Spark CRM…';
+    try {
+      var r = await fetch('/.netlify/functions/spark-relay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contact_id:sparkId, note:text})});
+      var rj = await r.json().catch(function(){return {};});
+      if (r.ok) {
+        ss.className='spark-sync-status ok'; ss.textContent='✓ Synced to Spark CRM';
+      } else {
+        ss.className='spark-sync-status err';
+        var errMsg = rj.error || ('HTTP '+r.status);
+        ss.textContent='⚠ Spark: '+(typeof errMsg==='object'?JSON.stringify(errMsg):String(errMsg));
       }
-    } else {
-      ss.className='spark-sync-status err';
-      var errMsg = rj.detail || rj.error || ('HTTP '+r.status);
-      ss.textContent='⚠ Spark: '+(typeof errMsg==='object'?JSON.stringify(errMsg):String(errMsg));
-    }
-  } catch(e) { ss.className='spark-sync-status err'; ss.textContent='⚠ Error: '+e.message; }
+    } catch(e) { ss.className='spark-sync-status err'; ss.textContent='⚠ Error: '+e.message; }
+  } else {
+    ss.className='spark-sync-status ok';
+    ss.textContent='✓ Note saved — link this lead to Spark above to enable CRM sync';
+    document.getElementById('spark-link-section').style.display = '';
+  }
   renderStats(); renderFollowUpQueue(); renderLeads();
   btn.disabled=false; btn.textContent='+ Add Note to Spark';
+}
+
+async function linkSparkId() {
+  if (!currentLead) return;
+  var input = document.getElementById('spark-link-input');
+  var val = parseInt(input.value.trim());
+  if (!val) { input.style.borderColor='var(--hot)'; return; }
+  input.style.borderColor='';
+  var btn = input.nextElementSibling;
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  await saveField(currentLead.id, 'spark_id', val);
+  currentLead.spark_id = val;
+  var idx = LEADS.findIndex(function(l){return l.id===currentLead.id;});
+  if (idx>-1) LEADS[idx].spark_id = val;
+  document.getElementById('spark-link-section').style.display = 'none';
+  var ss = document.getElementById('spark-sync-status');
+  ss.className='spark-sync-status ok'; ss.textContent='✓ Linked to Spark contact #'+val+' — future notes will sync automatically';
+  btn.textContent='Link'; btn.disabled=false;
 }
 
 function toggleChat() { chatOpen=!chatOpen; document.getElementById('chat-panel').classList.toggle('open',chatOpen); }
