@@ -575,7 +575,8 @@ async function addNote() {
       }
     } else {
       ss.className='spark-sync-status err';
-      ss.textContent='⚠ Spark sync failed: '+(rj.detail||rj.error||r.status);
+      var errMsg = rj.error || rj.detail || ('HTTP '+r.status);
+      ss.textContent='⚠ Spark sync failed: '+(typeof errMsg==='object'?JSON.stringify(errMsg):errMsg);
     }
   } catch(e) { ss.className='spark-sync-status err'; ss.textContent='⚠ Error: '+e.message; }
   renderStats(); renderFollowUpQueue(); renderLeads();
