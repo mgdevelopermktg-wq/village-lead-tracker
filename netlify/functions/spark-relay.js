@@ -74,21 +74,22 @@ export const handler = async (event) => {
     const typeId   = parseInt(process.env.SPARK_INTERACTION_TYPE_ID) || undefined;
 
     // Try endpoints in order — first success wins
+    // Spark uses flat (unwrapped) payloads; notes use "text" not "body"
     const attempts = [
-      // 1. Original interaction endpoint (may show under Interactions in Spark UI)
-      {
-        url: `${SPARK_API}/interactions`,
-        body: { interaction: { contact_id: sparkId, note, occurred_at, ...(teamId && {team_member_id: teamId}), ...(typeId && {interaction_type_id: typeId}) } },
-      },
-      // 2. Flat notes endpoint
+      // 1. Notes endpoint — "text" is the required field name
       {
         url: `${SPARK_API}/notes`,
-        body: { note: { contact_id: sparkId, body: note, occurred_at, ...(teamId && {team_member_id: teamId}) } },
+        body: { contact_id: sparkId, text: note, occurred_at, ...(teamId && {team_member_id: teamId}) },
       },
-      // 3. Project-scoped notes (common in Spark RE)
+      // 2. Interactions endpoint — flat payload, contact_id at root
+      {
+        url: `${SPARK_API}/interactions`,
+        body: { contact_id: sparkId, note, occurred_at, ...(teamId && {team_member_id: teamId}), ...(typeId && {interaction_type_id: typeId}) },
+      },
+      // 3. Project-scoped notes
       ...(projectId ? [{
         url: `${SPARK_API}/projects/${projectId}/contacts/${sparkId}/notes`,
-        body: { note: { body: note, occurred_at, ...(teamId && {team_member_id: teamId}) } },
+        body: { contact_id: sparkId, text: note, occurred_at, ...(teamId && {team_member_id: teamId}) },
       }] : []),
     ];
 
