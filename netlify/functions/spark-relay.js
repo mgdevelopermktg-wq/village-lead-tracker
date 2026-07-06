@@ -1,7 +1,7 @@
 /**
  * spark-relay.js
- * Posts a note to Spark CRM.
- * If contact_id is missing, searches Spark by name to find the contact.
+ * Posts a free-form note to the Spark CRM Notes section.
+ * If contact_id is missing, searches Spark by name first.
  * Returns the resolved spark_id so the frontend can cache it.
  */
 
@@ -30,10 +30,10 @@ async function findContactByName(name) {
   if (!list.length) return null;
 
   const target = name.toLowerCase().trim();
-  // Exact match first
-  const exact = list.find(c => `${c.first_name||''} ${c.last_name||''}`.toLowerCase().trim() === target);
+  const exact = list.find(c =>
+    `${c.first_name||''} ${c.last_name||''}`.toLowerCase().trim() === target
+  );
   if (exact) return exact;
-  // Partial fallback
   return list.find(c => {
     const full = `${c.first_name||''} ${c.last_name||''}`.toLowerCase().trim();
     return full.includes(target) || target.includes(full);
@@ -48,6 +48,7 @@ export const handler = async (event) => {
     const { contact_id, note, name, timestamp } = JSON.parse(event.body || '{}');
     if (!note) return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'note is required' }) };
 
+    // Resolve spark contact ID
     let sparkId = contact_id || null;
     let resolvedFromSearch = false;
 
@@ -59,34 +60,38 @@ export const handler = async (event) => {
     if (!sparkId) {
       return { statusCode: 404, headers: CORS, body: JSON.stringify({
         error: 'Contact not found in Spark',
-        detail: name ? `No contact matched "${name}"` : 'No contact_id or name provided'
+        detail: name ? `No contact matched "${name}"` : 'No contact_id or name provided',
       })};
     }
 
+    // POST to the Notes section: /v2/contacts/{id}/notes
     const payload = {
-      interaction: {
-        contact_id: sparkId,
-        interaction_type_id: parseInt(process.env.SPARK_INTERACTION_TYPE_ID),
+      note: {
+        body: note,
         team_member_id: parseInt(process.env.SPARK_TEAM_MEMBER_ID),
-        note,
         occurred_at: timestamp || new Date().toISOString(),
       }
     };
 
-    const resp = await fetch(`${SPARK_API}/interactions`, {
+    const resp = await fetch(`${SPARK_API}/contacts/${sparkId}/notes`, {
       method: 'POST',
       headers: sparkAuth(),
       body: JSON.stringify(payload),
     });
-    const data = await resp.json();
-    if (!resp.ok) return { statusCode: resp.status, headers: CORS, body: JSON.stringify({ error: data }) };
 
-    return { statusCode: 200, headers: CORS, body: JSON.stringify({
-      success: true,
-      interaction: data,
-      spark_id: sparkId,
-      resolved_from_search: resolvedFromSearch,
-    })};
+    // Spark may return 201 Created for notes
+    if (resp.status === 200 || resp.status === 201) {
+      const data = await resp.json().catch(() => ({}));
+      return { statusCode: 200, headers: CORS, body: JSON.stringify({
+        success: true,
+        note: data,
+        spark_id: sparkId,
+        resolved_from_search: resolvedFromSearch,
+      })};
+    }
+
+    const errData = await resp.json().catch(() => ({}));
+    return { statusCode: resp.status, headers: CORS, body: JSON.stringify({ error: errData }) };
 
   } catch (err) {
     return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: err.message }) };
