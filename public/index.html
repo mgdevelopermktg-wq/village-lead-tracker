@@ -588,7 +588,7 @@ async function addNote() {
   if (idx>-1) { LEADS[idx].notes=newNotes; LEADS[idx].last_note_date=today; }
   var sparkId = currentLead.spark_id||currentLead.sparkId||null;
   var ss = document.getElementById('spark-sync-status');
-  ss.className = 'spark-sync-status syncing'; ss.textContent = '⟳ Syncing to Spark CRM…';
+  ss.className = 'spark-sync-status syncing'; ss.textContent = '⧳ Syncing to Spark CRM…';
   try {
     var body = {note: text, name: currentLead.name};
     if (sparkId) body.contact_id = sparkId;
@@ -596,7 +596,6 @@ async function addNote() {
     var rj = await r.json().catch(function(){return {};});
     if (r.ok) {
       ss.className='spark-sync-status ok'; ss.textContent='✓ Synced to Spark CRM';
-      // Cache resolved spark_id so future notes go direct
       if (rj.spark_id && !sparkId) {
         currentLead.spark_id = rj.spark_id;
         var idx2 = LEADS.findIndex(function(l){return l.id===currentLead.id;});
@@ -608,7 +607,6 @@ async function addNote() {
       var errMsg = rj.error || ('HTTP '+r.status);
       ss.className='spark-sync-status err';
       ss.textContent='⚠ Spark: '+(typeof errMsg==='object'?JSON.stringify(errMsg):String(errMsg));
-      // Show manual link as fallback if auto-search also failed
       if (!sparkId) document.getElementById('spark-link-section').style.display = '';
     }
   } catch(e) { ss.className='spark-sync-status err'; ss.textContent='⚠ Error: '+e.message; }
@@ -649,7 +647,7 @@ async function sendChat() {
   document.getElementById('chat-suggestions').style.display='none';
   var thinking = appendChatMsg('thinking','✦ Thinking…');
   var hot=LEADS.filter(function(l){return l.rank==='HOT';}), warm=LEADS.filter(function(l){return l.rank==='WARM';}), pres=LEADS.filter(function(l){return l.funnel==='presentation';}), sale=LEADS.filter(function(l){return l.funnel==='sale';});
-  var ctx = 'The Village at Coral Gables — Lead Tracker ('+LEADS.length+' total)\nHOT leads ('+hot.length+'): '+hot.map(function(l){return '[ID:'+l.id+'] '+l.name+' ('+( l.agent||'?')+', last note: '+(l.last_note_date||'none')+')';}).join('; ')+'\nWARM leads ('+warm.length+'): '+warm.map(function(l){return '[ID:'+l.id+'] '+l.name;}).slice(0,15).join(', ')+(warm.length>15?' +more':'')+'\nCOLD: '+LEADS.filter(function(l){return l.rank==='COLD';}).length+'\nPresentations ('+pres.length+'): '+pres.map(function(l){return '[ID:'+l.id+'] '+l.name;}).join(', ')+'\nSales: '+sale.length+''\nLead notes (search these for interests, unit preferences, concerns):\n'+LEADS.filter(function(l){return l.notes&&l.notes.trim();}).map(function(l){return '[ID:'+l.id+'] '+l.name+' ('+l.rank+', '+l.funnel+'): '+(l.notes||'').slice(0,400);}).join('\n');}).join('\n');
+  var ctx = 'The Village at Coral Gables — Lead Tracker ('+LEADS.length+' total)\nHOT leads ('+hot.length+'): '+hot.map(function(l){return '[ID:'+l.id+'] '+l.name+' ('+( l.agent||'?')+', last note: '+(l.last_note_date||'none')+')';}).join('; ')+'\nWARM leads ('+warm.length+'): '+warm.map(function(l){return '[ID:'+l.id+'] '+l.name;}).slice(0,15).join(', ')+(warm.length>15?' +more':'')+'\nCOLD: '+LEADS.filter(function(l){return l.rank==='COLD';}).length+'\nPresentations ('+pres.length+'): '+pres.map(function(l){return '[ID:'+l.id+'] '+l.name;}).join(', ')+'\nSales: '+sale.length+'\nLead notes (search these for interests, unit preferences, concerns):\n'+LEADS.filter(function(l){return l.notes&&l.notes.trim();}).map(function(l){return '[ID:'+l.id+'] '+l.name+' ('+l.rank+', '+l.funnel+'): '+(l.notes||'').slice(0,400);}).join('\n');
   try {
     var r = await fetch('/.netlify/functions/ai-chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({messages:chatHistory, leadsContext:ctx})});
     thinking.remove();
