@@ -1,7 +1,8 @@
 /**
  * ai-chat.js
- * Handles AI Lead Intelligence chat queries via the Anthropic API.
- * Receives the user query + a compact leads summary, returns a text answer.
+ * Handles AI Lead Intelligence chat via the Anthropic API.
+ * Accepts { messages, leadsContext } from the frontend.
+ * Supports multi-turn conversation history.
  */
 
 const headers = {
@@ -11,16 +12,16 @@ const headers = {
 };
 
 export const handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' };
-  }
-
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
-  }
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
+  if (event.httpMethod !== 'POST')    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
 
   try {
-    const { query, leads_summary } = JSON.parse(event.body || '{}');
+    const body = JSON.parse(event.body || '{}');
+
+    // Accept either { messages, leadsContext } (frontend) or { query, leads_summary } (legacy)
+    const messages     = body.messages || [];
+    const leadsContext = body.leadsContext || body.leads_summary || '';
+    const query        = body.query || (messages.filter(m => m.role === 'user').pop()?.content) || '';
 
     if (!query) {
       return { statusCode: 400, headers, body: JSON.stringify({ error: 'query is required' }) };
@@ -28,17 +29,18 @@ export const handler = async (event) => {
 
     const systemPrompt = `You are a luxury real estate sales intelligence assistant for The Village at Coral Gables — a $3M+ residence development by MG Developer in Miami. You help the sales team analyze their lead pipeline.
 
-You have access to a CSV-style leads summary (name|rank|funnel|source|agent|last_note_date).
+Current lead data:
+${leadsContext || 'No lead data available.'}
 
 Ranks: HOT (high intent), WARM (engaged), COLD (no engagement yet).
 Funnel stages: new → contacted → presentation → sale.
 
-Be concise and data-driven. Highlight actionable insights. When listing leads, use names sparingly and avoid raw PII in summaries. Use a confident, professional tone that matches a premium brand.`;
+Be concise and data-driven. Highlight actionable insights. Use a confident, professional tone matching a premium brand. Avoid listing raw contact info.`;
 
-    const userMessage = `Lead data (name|rank|funnel|source|agent|last_note_date):
-${leads_summary || 'No leads available.'}
-
-Question: ${query}`;
+    // Build messages for multi-turn — use full history if provided, else single query
+    const anthropicMessages = messages.length
+      ? messages.map(m => ({ role: m.role, content: m.content }))
+      : [{ role: 'user', content: query }];
 
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -51,18 +53,17 @@ Question: ${query}`;
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 800,
         system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
+        messages: anthropicMessages,
       }),
     });
 
     const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error?.message || 'Anthropic API error');
 
-    if (!resp.ok) {
-      throw new Error(data.error?.message || 'Anthropic API error');
-    }
+    const reply = data.content?.[0]?.text || 'No response generated.';
 
-    const answer = data.content?.[0]?.text || 'No response generated.';
-    return { statusCode: 200, headers, body: JSON.stringify({ answer }) };
+    // Return as `reply` — matches frontend's data.reply check
+    return { statusCode: 200, headers, body: JSON.stringify({ reply }) };
 
   } catch (err) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
