@@ -173,6 +173,10 @@
     .lead-row td:first-child { border-radius: 8px 8px 0 0; }
     .lead-row td:last-child { border-radius: 0 0 8px 8px; }
   }
+    .ai-filter-banner { display:none; align-items:center; gap:10px; padding:8px 14px; background:rgba(214,187,131,0.1); border:1px solid rgba(214,187,131,0.3); border-radius:8px; color:var(--gold-dark); font-size:12px; margin-bottom:12px; }
+    .ai-filter-banner.active { display:flex; }
+    .ai-filter-clear { background:none; border:1px solid rgba(122,99,58,0.4); color:var(--gold-dark); border-radius:6px; padding:3px 10px; cursor:pointer; font-size:11px; font-family:inherit; transition:background 0.2s; }
+    .ai-filter-clear:hover { background:rgba(214,187,131,0.2); }
 </style>
 </head>
 <body>
@@ -245,7 +249,12 @@
   </div>
   <div class="divider"></div>
   <div class="leads-section">
-    <div class="leads-toolbar">
+    <div id="ai-filter-banner" class="ai-filter-banner">
+          <span>&#10022; AI Filter &#8212;</span>
+          <strong id="ai-filter-count">0 leads</strong>
+          <button class="ai-filter-clear" onclick="clearAiFilter()">&#10005; Clear</button>
+        </div>
+        <div class="leads-toolbar">
       <input class="search-box" type="text" placeholder="Search by name, agent, source&hellip;" id="search-input" oninput="renderLeads()">
       <button class="filter-btn active" onclick="setFilter('ALL')" id="f-ALL">All</button>
       <button class="filter-btn hot" onclick="setFilter('HOT')" id="f-HOT">&#x1F525; Hot</button>
@@ -377,7 +386,7 @@
 </div>
 
 <script>
-var LEADS = [], currentFilter = 'ALL', currentLead = null, chatOpen = false, chatHistory = [];
+var LEADS = [], currentFilter = 'ALL', currentLead = null, chatOpen = false, chatHistory = [], aiFilterIds = null;
 
 async function loadLeads() {
   try {
@@ -457,6 +466,7 @@ function renderLeads() {
   var q = (document.getElementById('search-input').value||'').toLowerCase();
   var week = document.getElementById('week-filter').value;
   var filtered = LEADS.filter(function(l) {
+    if (aiFilterIds !== null) return aiFilterIds.some(function(id){return String(id)===String(l.id);});
     if (currentFilter==='HOT') return l.rank==='HOT';
     if (currentFilter==='WARM') return l.rank==='WARM';
     if (currentFilter==='COLD') return l.rank==='COLD';
@@ -468,6 +478,8 @@ function renderLeads() {
   if (week) filtered = filtered.filter(function(l){return l.week===week;});
   if (q) filtered = filtered.filter(function(l){return (l.name||'').toLowerCase().indexOf(q)>-1||(l.agent||'').toLowerCase().indexOf(q)>-1||(l.source||'').toLowerCase().indexOf(q)>-1||(l.notes||'').toLowerCase().indexOf(q)>-1;});
   document.getElementById('leads-count').textContent = filtered.length + ' lead' + (filtered.length!==1?'s':'');
+    var _b=document.getElementById('ai-filter-banner');
+    if(_b){if(aiFilterIds!==null){_b.classList.add('active');var _bc=document.getElementById('ai-filter-count');if(_bc)_bc.textContent=filtered.length+' lead'+(filtered.length!==1?'s':'')+' matched';}else{_b.classList.remove('active');}}
   var container = document.getElementById('leads-container');
   if (!filtered.length) { container.innerHTML = '<div class="empty-queue">No leads match your filter.</div>'; return; }
   container.innerHTML = '<table class="leads-table"><thead><tr><th>Name</th><th>Agent</th><th>Source</th><th>Type</th><th>Rank</th><th>Funnel</th><th>Last Note</th><th>Week</th></tr></thead><tbody>'+filtered.map(function(l){
@@ -622,7 +634,8 @@ async function linkSparkId() {
   btn.textContent='Link'; btn.disabled=false;
 }
 
-function toggleChat() { chatOpen=!chatOpen; document.getElementById('chat-panel').classList.toggle('open',chatOpen); }
+function clearAiFilter(){aiFilterIds=null;renderLeads();}
+  function toggleChat() { chatOpen=!chatOpen; document.getElementById('chat-panel').classList.toggle('open',chatOpen); }
 function askChat(q) { document.getElementById('chat-input').value=q; sendChat(); }
 
 async function sendChat() {
@@ -636,13 +649,15 @@ async function sendChat() {
   document.getElementById('chat-suggestions').style.display='none';
   var thinking = appendChatMsg('thinking','✦ Thinking…');
   var hot=LEADS.filter(function(l){return l.rank==='HOT';}), warm=LEADS.filter(function(l){return l.rank==='WARM';}), pres=LEADS.filter(function(l){return l.funnel==='presentation';}), sale=LEADS.filter(function(l){return l.funnel==='sale';});
-  var ctx = 'The Village at Coral Gables — Lead Tracker ('+LEADS.length+' total)\nHOT leads ('+hot.length+'): '+hot.map(function(l){return l.name+' ('+( l.agent||'?')+', last note: '+(l.last_note_date||'none')+')';}).join('; ')+'\nWARM leads ('+warm.length+'): '+warm.map(function(l){return l.name;}).slice(0,15).join(', ')+(warm.length>15?' +more':'')+'\nCOLD: '+LEADS.filter(function(l){return l.rank==='COLD';}).length+'\nPresentations ('+pres.length+'): '+pres.map(function(l){return l.name;}).join(', ')+'\nSales: '+sale.length+'\nHOT notes:\n'+hot.slice(0,5).map(function(l){return l.name+': '+(l.notes||'none').slice(0,200);}).join('\n');
+  var ctx = 'The Village at Coral Gables — Lead Tracker ('+LEADS.length+' total)\nHOT leads ('+hot.length+'): '+hot.map(function(l){return '[ID:'+l.id+'] '+l.name+' ('+( l.agent||'?')+', last note: '+(l.last_note_date||'none')+')';}).join('; ')+'\nWARM leads ('+warm.length+'): '+warm.map(function(l){return '[ID:'+l.id+'] '+l.name;}).slice(0,15).join(', ')+(warm.length>15?' +more':'')+'\nCOLD: '+LEADS.filter(function(l){return l.rank==='COLD';}).length+'\nPresentations ('+pres.length+'): '+pres.map(function(l){return '[ID:'+l.id+'] '+l.name;}).join(', ')+'\nSales: '+sale.length+'\nHOT notes:\n'+hot.slice(0,5).map(function(l){return '[ID:'+l.id+'] '+l.name+': '+(l.notes||'none').slice(0,200);}).join('\n');
   try {
     var r = await fetch('/.netlify/functions/ai-chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({messages:chatHistory, leadsContext:ctx})});
     thinking.remove();
     if (!r.ok) { var err=await r.json().catch(function(){return {};}); appendChatMsg('assistant','⚠ '+(err.error||'AI chat unavailable. Set ANTHROPIC_API_KEY in Netlify environment variables.')); document.getElementById('chat-send').disabled=false; return; }
     var data=await r.json();
-    var reply=data.content||data.reply||data.message||'No response.';
+    var reply=data.reply||data.content||data.message||'No response.';
+    var filterIds=data.filter_ids||null;
+    if(filterIds&&Array.isArray(filterIds)&&filterIds.length){aiFilterIds=filterIds;showView('leads');renderLeads();}
     appendChatMsg('assistant',reply);
     chatHistory.push({role:'assistant',content:reply});
   } catch(e) { thinking.remove(); appendChatMsg('assistant','⚠ Network error: '+e.message); }
