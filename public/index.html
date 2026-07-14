@@ -803,7 +803,7 @@ function fmtDate(d) {
   if (!d) return '—';
   const dt = new Date(d);
   if (isNaN(dt)) return d;
-  return dt.toLocaleDateString(''en-US', { month: 'short', day: 'numeric' });
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 function rankBadge(r) {
   const map = { HOT: 'badge-hot', WARM: 'badge-warm', COLD: 'badge-cold' };
