@@ -579,7 +579,7 @@ function renderNoteTimeline(l) {
   }).join('');
 }
 
-anync function updateField(field, value) {
+async function updateField(field, value) {
   if (!currentLead) return;
   currentLead[field] = value;
   var idx = LEADS.findIndex(function(l){return l.id===currentLead.id;});
@@ -633,7 +633,7 @@ async function addNote() {
   btn.disabled=false; btn.textContent='+ Add Note to Spark';
 }
 
-anync function linkSparkId() {
+async function linkSparkId() {
   if (!currentLead) return;
   var input = document.getElementById('spark-link-input');
   var val = parseInt(input.value.trim());
