@@ -1,18 +1,23 @@
 /**
  * backfill-spark-dates.js
- * One-time admin function — fixes created_at for leads that were bulk-imported
- * via the old Python script without a Spark date (Supabase used server default).
+ * One-time admin function — fixes created_at for leads bulk-imported without a
+ * Spark date (Supabase used server default, identifiable by microsecond precision).
  *
- * Trigger: GET /.netlify/functions/backfill-spark-dates?secret=<BACKFILL_SECRET>
- * Add BACKFILL_SECRET as a Netlify environment variable (any string you choose).
+ * Processes in batches of 20 (parallel) to stay within Netlify's 30s timeout.
+ * Run each batch sequentially by incrementing ?batch=0, ?batch=1, etc.
  *
- * Safe to re-run: skips leads that already have a valid Spark date
- * (created_at without microsecond precision).
+ * Usage:
+ *   GET /.netlify/functions/backfill-spark-dates?secret=<BACKFILL_SECRET>&batch=0
+ *   GET /.netlify/functions/backfill-spark-dates?secret=<BACKFILL_SECRET>&batch=1
+ *   ... repeat until message says "Nothing to backfill"
+ *
+ * Safe to re-run: skips leads that already have a valid Spark date.
  */
 
 import { createClient } from '@supabase/supabase-js';
 
 const SPARK_API = 'https://api.spark.re/v2';
+const BATCH_SIZE = 20;
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -30,8 +35,7 @@ async function sparkGet(path) {
   return resp.json();
 }
 
-// Microsecond-precision timestamps (.123456) indicate the Supabase
-// server default was used rather than the real Spark date.
+// Microsecond-precision timestamps (.123456) = Supabase server default fallback
 function isFallbackDate(ts) {
   return typeof ts === 'string' && /\.\d{6}/.test(ts);
 }
@@ -44,6 +48,8 @@ export const handler = async (event) => {
     return { statusCode: 401, headers, body: JSON.stringify({ error: 'Unauthorized' }) };
   }
 
+  const batchNum = parseInt(event.queryStringParameters?.batch || '0', 10);
+
   try {
     const { data: leads, error: fetchErr } = await supabase
       .from('leads')
@@ -52,26 +58,36 @@ export const handler = async (event) => {
     if (fetchErr) throw fetchErr;
 
     const toFix = leads.filter(l => isFallbackDate(l.created_at));
-    console.log(`${leads.length} total leads; ${toFix.length} need backfill`);
+    const totalToFix = toFix.length;
 
-    if (!toFix.length) {
+    if (!totalToFix) {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ message: 'Nothing to backfill', total: leads.length }),
+        body: JSON.stringify({ message: 'Nothing to backfill — all dates are correct', total: leads.length }),
       };
     }
 
-    const results = { updated: 0, skipped: 0, errors: [] };
+    const batch = toFix.slice(batchNum * BATCH_SIZE, (batchNum + 1) * BATCH_SIZE);
+    const hasMore = totalToFix > (batchNum + 1) * BATCH_SIZE;
 
-    for (const lead of toFix) {
+    if (!batch.length) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ message: `Batch ${batchNum} out of range — backfill complete`, totalRemaining: totalToFix }),
+      };
+    }
+
+    console.log(`Batch ${batchNum}: processing ${batch.length} of ${totalToFix} leads`);
+
+    const results = await Promise.all(batch.map(async (lead) => {
       try {
         const contact = await sparkGet(`/contacts/${lead.spark_id}`);
         const sparkDate = contact.created_at;
 
         if (!sparkDate) {
-          results.skipped++;
-          continue;
+          return { spark_id: lead.spark_id, status: 'skipped', reason: 'no Spark date' };
         }
 
         const { error: updateErr } = await supabase
@@ -80,21 +96,29 @@ export const handler = async (event) => {
           .eq('id', lead.id);
 
         if (updateErr) throw updateErr;
-        results.updated++;
+        return { spark_id: lead.spark_id, status: 'updated', date: sparkDate };
+
       } catch (err) {
-        results.errors.push({ spark_id: lead.spark_id, error: err.message });
+        return { spark_id: lead.spark_id, status: 'error', error: err.message };
       }
+    }));
 
-      await new Promise(r => setTimeout(r, 50));
-    }
+    const updated = results.filter(r => r.status === 'updated').length;
+    const skipped = results.filter(r => r.status === 'skipped').length;
+    const errors  = results.filter(r => r.status === 'error').length;
 
-    console.log('Backfill complete:', results);
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
-        message: `Backfill complete: ${results.updated} updated, ${results.skipped} skipped, ${results.errors.length} errors`,
-        details: results,
+        batch: batchNum,
+        processed: batch.length,
+        updated,
+        skipped,
+        errors,
+        totalRemaining: hasMore ? totalToFix - (batchNum + 1) * BATCH_SIZE : 0,
+        hasMore,
+        nextBatch: hasMore ? batchNum + 1 : null,
       }),
     };
 
