@@ -19,7 +19,7 @@ const supabase = createClient(
 
 // ── Junk filter ────────────────────────────────────────────────────────────────
 
-const JUNK_RE = /^\d{3}[-.\s]?\d{3}[-.\s]?\d{4}$|^wireless caller|^tollfree|^unavailable|^unknown|^no name|^[A-Z\s]+\s+[A-Z]{2}$/i;
+const JUNK_RE = /^\d{3}[-.\.\s]?\d{3}[-.\.\s]?\d{4}$|^wireless caller|^tollfree|^unavailable|^unknown|^no name|^[A-Z\s]+\s+[A-Z]{2}$/i;
 
 function isJunk(contact) {
   const first = (contact.first_name || '').trim();
@@ -54,7 +54,7 @@ function deriveRank(c)    { return c.last_interaction_date ? 'WARM' : 'COLD'; }
 function deriveFunnel(c)  { return c.last_interaction_date ? 'contacted' : 'new'; }
 
 function deriveNotes(c) {
-  const fields = c.additional_fields || [];
+  const fields = c.question_answers || [];
   return fields
     .filter(f => f.name && f.value)
     .map(f => `${f.name}: ${f.value}`)
@@ -119,7 +119,7 @@ export const handler = async () => {
       return { statusCode: 200, body: 'No new leads to import' };
     }
 
-    // Fetch full detail for each (for additional_fields)
+    // Fetch full detail for each (for team_members and question_answers)
     const rows = [];
     for (const c of toImport) {
       let full = c;
@@ -133,7 +133,9 @@ export const handler = async () => {
         spark_id:       full.id,
         week:           label,
         name:           `${(full.first_name || '').trim()} ${(full.last_name || '').trim()}`.trim() || 'Unknown',
-        agent:          '',
+        agent:          (full.team_members && full.team_members[0])
+                          ? `${full.team_members[0].first_name} ${full.team_members[0].last_name}`.trim()
+                          : '',
         source:         deriveSource(full),
         type:           deriveType(full),
         rating:         '',
