@@ -11,7 +11,7 @@ const PROJECT_ID = process.env.SPARK_PROJECT_ID || '2167';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Tracker-Key',
   'Content-Type': 'application/json',
 };
 
@@ -67,6 +67,12 @@ async function getContactTeamMemberId(sparkId) {
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };
+
+  const key = event.headers?.['x-tracker-key'] || event.queryStringParameters?.key;
+  if (!key || key !== process.env.TRACKER_KEY) {
+    return { statusCode: 401, headers: CORS, body: JSON.stringify({ error: 'Unauthorized' }) };
+  }
+
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: 'Method not allowed' }) };
 
   try {

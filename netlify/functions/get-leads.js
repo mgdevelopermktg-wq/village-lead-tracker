@@ -13,13 +13,18 @@ const supabase = createClient(
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Tracker-Key',
   'Content-Type': 'application/json',
 };
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers, body: '' };
+  }
+
+  const key = event.headers?.['x-tracker-key'] || event.queryStringParameters?.key;
+  if (!key || key !== process.env.TRACKER_KEY) {
+    return { statusCode: 401, headers, body: JSON.stringify({ error: 'Unauthorized' }) };
   }
 
   if (event.httpMethod !== 'GET') {
