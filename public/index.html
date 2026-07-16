@@ -776,7 +776,7 @@ async function sendChat() {
   try {
     const r = await fetch('/.netlify/functions/ai-chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Tracker-Key': 'tv-mgdev-k9x2' },
       body: JSON.stringify({ query, leads_summary: summary }),
     });
     const data = await r.json();
