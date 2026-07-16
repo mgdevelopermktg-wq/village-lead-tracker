@@ -821,19 +821,4 @@ function funnelBadge(f) {
 loadLeads();
 </script>
 </body>
-</html>en-US', { month:'short', day:'numeric', year:'numeric' });
-}
-function rankBadge(r) {
-  const cls = { HOT:'hot', WARM:'warm', COLD:'cold' }[r] || 'cold';
-  return `<span class="badge badge-${cls}">${r||'—'}</span>`;
-}
-function funnelBadge(f) {
-  const label = (f||'new').charAt(0).toUpperCase() + (f||'new').slice(1);
-  return `<span class="badge badge-${f||'new'}">${label}</span>`;
-}
-
-// ── Init ──────────────────────────────────────────────────────────
-loadLeads();
-</script>
-</body>
 </html>
