@@ -21,19 +21,16 @@ export const handler = async (event) => {
   }
 
   try {
-    // Old Supabase client (source)
     const oldSupabase = createClient(
       process.env.SUPABASE_URL,
       process.env.SUPABASE_SECRET_KEY
     );
 
-    // New Supabase client (destination)
     const newSupabase = createClient(
       process.env.NEW_SUPABASE_URL,
       process.env.NEW_SUPABASE_SECRET_KEY
     );
 
-    // Read all leads from old project
     const { data: leads, error: readError } = await oldSupabase
       .from('leads')
       .select('*')
@@ -48,10 +45,9 @@ export const handler = async (event) => {
       };
     }
 
-    // Strip the auto-generated id so new project assigns its own
-    const rows = leads.map(({ id, ...rest }) => rest);
+    // Strip id and legacy_id — new project will assign its own ids
+    const rows = leads.map(({ id, legacy_id, ...rest }) => rest);
 
-    // Insert into new project in batches of 50
     const batchSize = 50;
     let inserted = 0;
     for (let i = 0; i < rows.length; i += batchSize) {
